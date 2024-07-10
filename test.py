@@ -6,6 +6,33 @@ import matplotlib.pyplot as plt
 
 np.random.seed(123)  # For reproducibility
 
+
+# hinton diagram
+def hinton(matrix, max_weight=None, ax=None):
+    """Draw Hinton diagram for visualizing a weight matrix."""
+    ax = ax if ax is not None else plt.gca()
+
+    matrix_t = matrix.T
+
+    if not max_weight:
+        max_weight = 2 ** np.ceil(np.log(np.abs(matrix_t).max()) / np.log(2))
+
+    ax.patch.set_facecolor('gray')
+    ax.set_aspect('equal', 'box')
+    ax.xaxis.set_major_locator(plt.NullLocator())
+    ax.yaxis.set_major_locator(plt.NullLocator())
+
+    for (x, y), w in np.ndenumerate(matrix_t):
+        color = 'white' if w > 0 else 'black'
+        size = np.sqrt(np.abs(w) / max_weight)
+        rect = plt.Rectangle([x - size / 2, y - size / 2], size, size,
+                             facecolor=color, edgecolor=color)
+        ax.add_patch(rect)
+
+    ax.autoscale_view()
+    ax.invert_yaxis()
+
+
 def simulate_data(psi=1, N=100, P=10):
     psi_inv = 1 / psi
     cov = np.diag([5, 4, 3, 2] + [psi_inv] * (P - 4))
@@ -16,7 +43,10 @@ def simulate_data(psi=1, N=100, P=10):
 from scipy.stats import multivariate_normal as mvn, gamma
 
 class GibbsBayesianPCA:
-    def __init__(self, t, q, a_alpha=1e-3, b_alpha=1e-3, a_tau=1e-3, b_tau=1e-3, beta=1e-3):
+    def __init__(
+        self, t, q, a_alpha=1e-3, b_alpha=1e-3, a_tau=1e-3, b_tau=1e-3, beta=1e-3,
+        tau_init=None, 
+        ):
         self.t = t
         self.N, self.d = t.shape
         self.q = q
@@ -25,9 +55,12 @@ class GibbsBayesianPCA:
         self.a_tau = a_tau
         self.b_tau = b_tau
         self.beta = beta
-        self.initialize_parameters()
+        self.initialize_parameters(tau_init=tau_init)
 
-    def initialize_parameters(self):
+    def initialize_parameters(
+        self,
+        tau_init=None,
+        ):
         self.x = np.random.randn(self.N, self.q)
         self.mu = np.zeros(self.d)
         self.W = np.random.randn(self.d, self.q)
@@ -37,7 +70,7 @@ class GibbsBayesianPCA:
         # b_tau_tilde= np.abs(np.random.randn(1))
         # a_tau_tilde = self.a_tau + 0.5 * self.N * self.d
         # self.tau = gamma.rvs(a_tau_tilde, scale=1/b_tau_tilde)
-        self.tau = 1
+        self.tau = 1 if tau_init is None else tau_init
         # b_tau_tilde = self.b_tau_tilde * self.tau
 
         self.Iq = np.eye(self.q)
@@ -77,9 +110,26 @@ class GibbsBayesianPCA:
             np.linalg.norm(self.t[n])**2 + self.mu.T @ self.mu + np.trace(self.W.T @ self.W @ (self.x[n][:,None] @ self.x[n][:,None].T)) + 2 * self.mu @ self.W @ self.x[n] - 2 * self.t[n] @ self.W @ self.x[n] - 2 * self.t[n] @ self.mu
             for n in range(self.N)
         ])
-        self.tau = gamma.rvs(a_tau_tilde, scale=1/b_tau_tilde)
+        # FIXME
+        # self.tau = gamma.rvs(a_tau_tilde, scale=1/b_tau_tilde)
 
-    def fit(self, iterations=1000):
+    def fit(
+        self, 
+        # params for the gibbs sampler
+        iterations=500,
+        burn_in=200,
+        thinning=10,
+        ):
+
+        # store the samples
+        self.samples = {
+            'x': [],
+            'mu': [],
+            'W': [],
+            'alpha': [],
+            'tau': [],
+        }
+
         for i in range(iterations):
             self.update_x()
             self.update_mu()
@@ -89,11 +139,20 @@ class GibbsBayesianPCA:
             if (i + 1) % 100 == 0:
                 print('Iteration ', ( i + 1 ))
 
+            if i >= burn_in and i % thinning == 0:
+                self.samples['x'].append(self.x)
+                self.samples['mu'].append(self.mu)
+                self.samples['W'].append(self.W)
+                self.samples['alpha'].append(self.alpha)
+                self.samples['tau'].append(self.tau)
+
 
 # %%
 # Simulate data with noise
-var_noise = 1e0
+var_noise = 1e-3
 data = simulate_data(psi=var_noise**(-1))
+
+
 
 # %%
 # Initialize and fit BPCA model with variational inference
@@ -113,22 +172,53 @@ plt.ylabel('Log10 variance')
 plt.title('Estimated noise variance: {:.2e}. Truth {:.2e}'.format(var_noise_est, var_noise) )
 plt.show()
 
-# %%
-from gibs_bpca import GibbsBayesianPCA
-# %%
-data.shape
-# %%
-bpca = GibbsBayesianPCA(data, q=data.shape[1])
-bpca.fit(iterations=3000)
 
 # %%
-bpca.tau, bpca.alpha**(-1)
-plt.plot(np.log10(sorted(bpca.alpha**(-1), reverse=True)))
+# hintion diagram
+plt.figure(figsize=(10, 5))
+plt.subplot(121)
+hinton(bpca_model.mean_w)
+plt.title('BPCA (VI)')
+
+# %%
+bpca = GibbsBayesianPCA(data, q=data.shape[1]-1, tau_init=var_noise**(-1))
+
+
+
+# %%
+bpca.fit(iterations=10000)
+
+
+
+# %%
+bpca_alpha_mean = np.mean(bpca.samples['alpha'], axis=0)
+bpca_tau_mean = np.mean(bpca.samples['tau'])
+
+print("Variance of noise: ", bpca_tau_mean**(-1))
+print("Variance of BPCA:\n", bpca_alpha_mean**(-1))
+
+
+plt.plot(np.log10(sorted(bpca_alpha_mean**(-1), reverse=True)))
 plt.xlabel('Principal component')
 plt.ylabel('Log10 variance')
-plt.title('Estimated noise variance: {:.2e}. Truth {:.2e}'.format(bpca.tau, var_noise) )
+plt.title('Estimated noise variance: {:.2e}. Truth {:.2e}'.format(bpca_tau_mean, var_noise) )
+
+
+bpca.alpha.shape
+# %%
+sorted(bpca_alpha_mean**(-1))
+# %%
+
 
 
 # %%
-bpca.alpha.shape
+bpca_W_mean = np.mean(bpca.samples['W'], axis=0)
+# hintion diagram
+plt.figure(figsize=(10, 5))
+plt.subplot(121)
+hinton(bpca_W_mean)
+plt.title('BPCA (Gibbs)')
+
+
+
 # %%
