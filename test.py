@@ -36,6 +36,14 @@ def hinton(matrix, max_weight=None, ax=None):
 def simulate_data(psi=1, N=100, P=10):
     psi_inv = 1 / psi
     cov = np.diag([5, 4, 3, 2] + [psi_inv] * (P - 4))
+
+    # Generate a random orthogonal matrix U
+    random_matrix = np.random.randn(P, P)
+    U, _, _ = np.linalg.svd(random_matrix)
+    
+    # Transform the covariance matrix
+    cov = U @ cov @ U.T
+
     return np.random.multivariate_normal(np.zeros(P), cov, N)
 
 
@@ -149,10 +157,10 @@ class GibbsBayesianPCA:
 
 # %%
 # Simulate data with noise
-var_noise = 1e-1
+var_noise = 1e-3
 data = simulate_data(
     psi=var_noise**(-1), 
-    # N=1000
+    N=1000
     )
 
 
@@ -194,7 +202,7 @@ bpca.fit(iterations=1000)
 
 
 # %%
-bpca_alpha_mean = np.mean(bpca.samples['alpha'][:10] , axis=0)
+bpca_alpha_mean = np.mean(bpca.samples['alpha'] , axis=0)
 bpca_tau_mean = np.mean(bpca.samples['tau'])
 
 print("Variance of noise: ", bpca_tau_mean**(-1))
@@ -224,8 +232,4 @@ plt.title('BPCA (Gibbs)')
 
 
 
-# %%
-bpca.samples['W'].shape
-# %%
-bpca_W_mean.shape
 # %%
