@@ -62,7 +62,7 @@ class GibbsBayesianPCA:
         tau_init=None,
         ):
         self.x = np.random.randn(self.N, self.q)
-        self.mu = np.zeros(self.d)
+        self.mu = np.zeros((1, self.d))
         self.W = np.random.randn(self.d, self.q)
         self.alpha = gamma.rvs(self.a_alpha, scale=1/self.b_alpha, size=self.q)
         # self.tau = gamma.rvs(self.a_tau, scale=1/self.b_tau)
@@ -80,19 +80,19 @@ class GibbsBayesianPCA:
     def update_x(self):
         Sigma_x = np.linalg.inv(self.Iq + self.tau * self.W.T @ self.W)
         for n in range(self.N):
-            m_x_n = self.tau * Sigma_x @ self.W.T @ (self.t[n] - self.mu)
-            self.x[n] = mvn.rvs(mean=m_x_n, cov=Sigma_x)
+            m_x_n = self.tau * Sigma_x @ self.W.T @ (self.t[[n]] - self.mu).T
+            self.x[[n]] = mvn.rvs(mean=m_x_n.flatten(), cov=Sigma_x)
 
     def update_mu(self):
         Sigma_mu = np.linalg.inv(self.beta * self.Id + self.N * self.tau * self.Id)
         m_mu = self.tau * Sigma_mu @ np.sum(self.t - self.x @ self.W.T, axis=0)
-        self.mu = mvn.rvs(mean=m_mu, cov=Sigma_mu)
+        self.mu = mvn.rvs(mean=m_mu, cov=Sigma_mu)[None, :]
 
     def update_W(self):
         for k in range(self.d):
             Sigma_w = np.linalg.inv(np.diag(self.alpha) + self.tau * self.x.T @ self.x)
-            m_w_k = self.tau * Sigma_w @ self.x.T @ (self.t[:, k] - self.mu[k])
-            self.W[k] = mvn.rvs(mean=m_w_k, cov=Sigma_w)
+            m_w_k = self.tau * Sigma_w @ self.x.T @ (self.t[:, [k]] - self.mu[:,[k]])
+            self.W[k] = mvn.rvs(mean=m_w_k.flatten(), cov=Sigma_w)
 
     def update_alpha(self):
         a_alpha_tilde = self.a_alpha + 0.5 * self.d
@@ -107,7 +107,7 @@ class GibbsBayesianPCA:
         # print( (self.x[n][:,None] @ self.x[n][:,None].T) )
         # print( np.trace(self.W.T @ self.W @ (self.x[n][:,None] @ self.x[n][:,None].T)) )
         b_tau_tilde = self.b_tau + 0.5 * np.sum([
-            np.linalg.norm(self.t[n])**2 + self.mu.T @ self.mu + np.trace(self.W.T @ self.W @ (self.x[n][:,None] @ self.x[n][:,None].T)) + 2 * self.mu @ self.W @ self.x[n] - 2 * self.t[n] @ self.W @ self.x[n] - 2 * self.t[n] @ self.mu
+            np.linalg.norm(self.t[n])**2 + self.mu.T @ self.mu + np.trace(self.W.T @ self.W @ (self.x[n][:,None] @ self.x[n][:,None].T)) + 2 * self.mu @ self.W @ self.x[n] - 2 * self.t[[n]] @ self.W @ self.x[[n]].T - 2 * self.t[[n]] @ self.mu.T
             for n in range(self.N)
         ])
         # FIXME
@@ -149,8 +149,11 @@ class GibbsBayesianPCA:
 
 # %%
 # Simulate data with noise
-var_noise = 1e-3
-data = simulate_data(psi=var_noise**(-1))
+var_noise = 1e-1
+data = simulate_data(
+    psi=var_noise**(-1), 
+    # N=1000
+    )
 
 
 
@@ -186,12 +189,12 @@ bpca = GibbsBayesianPCA(data, q=data.shape[1]-1, tau_init=var_noise**(-1))
 
 
 # %%
-bpca.fit(iterations=10000)
+bpca.fit(iterations=1000)
 
 
 
 # %%
-bpca_alpha_mean = np.mean(bpca.samples['alpha'], axis=0)
+bpca_alpha_mean = np.mean(bpca.samples['alpha'][:10] , axis=0)
 bpca_tau_mean = np.mean(bpca.samples['tau'])
 
 print("Variance of noise: ", bpca_tau_mean**(-1))
@@ -221,4 +224,8 @@ plt.title('BPCA (Gibbs)')
 
 
 
+# %%
+bpca.samples['W'].shape
+# %%
+bpca_W_mean.shape
 # %%
