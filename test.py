@@ -87,8 +87,10 @@ class GibbsBayesianPCA:
 
     def update_x(self):
         Sigma_x = np.linalg.inv(self.Iq + self.tau * self.W.T @ self.W)
+        m_x = self.tau * Sigma_x @ self.W.T @ (self.t - self.mu).T
         for n in range(self.N):
-            m_x_n = self.tau * Sigma_x @ self.W.T @ (self.t[[n]] - self.mu).T
+            # m_x_n = self.tau * Sigma_x @ self.W.T @ (self.t[[n]] - self.mu).T
+            m_x_n = m_x[:, [n]]
             self.x[[n]] = mvn.rvs(mean=m_x_n.flatten(), cov=Sigma_x)
 
     def update_mu(self):
@@ -97,16 +99,20 @@ class GibbsBayesianPCA:
         self.mu = mvn.rvs(mean=m_mu, cov=Sigma_mu)[None, :]
 
     def update_W(self):
+        Sigma_w = np.linalg.inv(np.diag(self.alpha) + self.tau * self.x.T @ self.x)
+        m_w = self.tau * Sigma_w @ self.x.T @ (self.t - self.mu)
         for k in range(self.d):
-            Sigma_w = np.linalg.inv(np.diag(self.alpha) + self.tau * self.x.T @ self.x)
-            m_w_k = self.tau * Sigma_w @ self.x.T @ (self.t[:, [k]] - self.mu[:,[k]])
+            # m_w_k = self.tau * Sigma_w @ self.x.T @ (self.t[:, [k]] - self.mu[:,[k]])
+            m_w_k = m_w[:, [k]]
             self.W[k] = mvn.rvs(mean=m_w_k.flatten(), cov=Sigma_w)
 
     def update_alpha(self):
         a_alpha_tilde = self.a_alpha + 0.5 * self.d
+        b_alpha_tilde = self.b_alpha + 0.5 * np.sum(self.W ** 2, axis=0)
         for i in range(self.q):
-            b_alpha_tilde = self.b_alpha + 0.5 * np.sum(self.W[:, i] ** 2)
-            self.alpha[i] = gamma.rvs(a_alpha_tilde, scale=1/b_alpha_tilde)
+            # b_alpha_tilde_i = self.b_alpha + 0.5 * np.sum(self.W[:, i] ** 2)
+            b_alpha_tilde_i = b_alpha_tilde[i]
+            self.alpha[i] = gamma.rvs(a_alpha_tilde, scale=1/b_alpha_tilde_i)
 
     def update_tau(self):
         a_tau_tilde = self.a_tau + 0.5 * self.N * self.d
@@ -114,10 +120,19 @@ class GibbsBayesianPCA:
         # n = 0
         # print( (self.x[n][:,None] @ self.x[n][:,None].T) )
         # print( np.trace(self.W.T @ self.W @ (self.x[n][:,None] @ self.x[n][:,None].T)) )
-        b_tau_tilde = self.b_tau + 0.5 * np.sum([
-            np.linalg.norm(self.t[n])**2 + self.mu.T @ self.mu + np.trace(self.W.T @ self.W @ (self.x[n][:,None] @ self.x[n][:,None].T)) + 2 * self.mu @ self.W @ self.x[n] - 2 * self.t[[n]] @ self.W @ self.x[[n]].T - 2 * self.t[[n]] @ self.mu.T
-            for n in range(self.N)
-        ])
+        # b_tau_tilde_ = self.b_tau + 0.5 * np.sum([
+        #     np.linalg.norm(self.t[n])**2 + self.mu.T @ self.mu + np.trace(self.W.T @ self.W @ (self.x[n][:,None] @ self.x[n][:,None].T)) + 2 * self.mu @ self.W @ self.x[n] - 2 * self.t[[n]] @ self.W @ self.x[[n]].T - 2 * self.t[[n]] @ self.mu.T
+        #     for n in range(self.N)
+        # ])
+        b_tau_tilde = self.b_tau + 0.5 * (
+            (self.t**2).sum() + (self.mu**2).sum()*self.N + np.trace(
+                self.W.T @ self.W @ (self.x.T @ self.x)
+            ) + 2 * (self.mu @ self.W @ self.x.T).sum() + np.sum([
+                - 2 * self.t[[n]] @ self.W @ self.x[[n]].T 
+                for n in range(self.N)
+            ]) - 2 * (self.t @ self.mu.T).sum()
+        )
+
         # FIXME
         # self.tau = gamma.rvs(a_tau_tilde, scale=1/b_tau_tilde)
 
@@ -157,10 +172,10 @@ class GibbsBayesianPCA:
 
 # %%
 # Simulate data with noise
-var_noise = 1e-3
+var_noise = 1e-2
 data = simulate_data(
     psi=var_noise**(-1), 
-    N=1000
+    N=100
     )
 
 
@@ -197,12 +212,12 @@ bpca = GibbsBayesianPCA(data, q=data.shape[1]-1, tau_init=var_noise**(-1))
 
 
 # %%
-bpca.fit(iterations=1000)
+bpca.fit(iterations=10000)
 
 
 
 # %%
-bpca_alpha_mean = np.mean(bpca.samples['alpha'] , axis=0)
+bpca_alpha_mean = np.mean(bpca.samples['alpha'][-10:] , axis=0)
 bpca_tau_mean = np.mean(bpca.samples['tau'])
 
 print("Variance of noise: ", bpca_tau_mean**(-1))
@@ -212,7 +227,7 @@ print("Variance of BPCA:\n", bpca_alpha_mean**(-1))
 plt.plot(np.log10(sorted(bpca_alpha_mean**(-1), reverse=True)))
 plt.xlabel('Principal component')
 plt.ylabel('Log10 variance')
-plt.title('Estimated noise variance: {:.2e}. Truth {:.2e}'.format(bpca_tau_mean, var_noise) )
+plt.title('Estimated noise variance: {:.2e}. Truth {:.2e}'.format(bpca_tau_mean**(-1), var_noise) )
 
 
 bpca.alpha.shape
