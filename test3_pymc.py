@@ -1,4 +1,7 @@
 # %%
+'''
+the latest version of pymc
+'''
 import numpy as np
 import pymc as pm
 import arviz as az
@@ -40,7 +43,7 @@ class BayesianPCA:
 
             # Sampling method
             if method == 'nuts':
-                trace = pm.sample(iterations, return_inferencedata=True, progressbar=True, tune=tune, chains=chains)
+                trace = pm.sample(iterations, return_inferencedata=True, progressbar=True, tune=tune, chains=chains, step=pm.NUTS())
             elif method == 'metropolis':
                 trace = pm.sample(iterations, step=pm.Metropolis(), return_inferencedata=True, progressbar=True, tune=tune, chains=chains)
             elif method == 'slice':
@@ -75,7 +78,7 @@ def simulate_data(psi=1, N=100, P=10):
 # %%
 # %%
 # Simulate data with noise
-var_noise = 1e-3
+var_noise = 1e-1
 data = simulate_data(
     psi=var_noise**(-1), 
     N=100
@@ -83,25 +86,50 @@ data = simulate_data(
 
 
 # %%
+'''
+validate the model with the simulated data
+'''
 bpca = BayesianPCA(data, q=data.shape[1] - 1)
 bpca.fit(
-    iterations=10,
-    # method='nuts',
-    method = 'metropolis'
+    iterations=500,
+    tune=100,
+    method='nuts',
+    # method = 'metropolis'
     )
-
-
-# %%
-# results of alpha, expectation of alpha
-az.plot_trace(bpca.trace, var_names=['alpha'])
-az.plot_forest(bpca.trace, var_names=['alpha'])
-
 
 # %%
 # mean of samples of alpha
 alpha_samples = bpca.trace.posterior['alpha'].values
 alpha_samples_mean = alpha_samples.mean(axis=(0,1))
 plt.plot(sorted(alpha_samples_mean**(-1), reverse=True))
+
+
+
+# %%
+'''
+time each sampling method
+'''
+# method = 'nuts'
+# method = 'metropolis'
+method = 'hmc'
+print(f'method = {method}')
+
+# %%
+%%timeit -n 1 -r 3
+bpca.fit(
+    iterations=1,
+    tune=0,
+    method=method,
+    )
+
+# %%
+%%timeit -n 1 -r 3
+bpca.fit(
+    iterations=101,
+    tune=0,
+    method=method,
+    )
+
 
 
 # %%
