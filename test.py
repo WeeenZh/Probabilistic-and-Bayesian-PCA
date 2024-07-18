@@ -4,7 +4,7 @@ from bpca import BPCA
 # from bpca_pymc import BPCA
 import matplotlib.pyplot as plt
 
-np.random.seed(123)  # For reproducibility
+np.random.seed(0)  # For reproducibility
 
 
 # hinton diagram
@@ -134,7 +134,7 @@ class GibbsBayesianPCA:
         )
 
         # FIXME
-        # self.tau = gamma.rvs(a_tau_tilde, scale=1/b_tau_tilde)
+        self.tau = gamma.rvs(a_tau_tilde, scale=1/b_tau_tilde)
 
     def fit(
         self, 
@@ -172,7 +172,7 @@ class GibbsBayesianPCA:
 
 # %%
 # Simulate data with noise
-var_noise = 1e-2
+var_noise = 1e-1
 data = simulate_data(
     psi=var_noise**(-1), 
     N=100
@@ -206,18 +206,23 @@ plt.subplot(121)
 hinton(bpca_model.mean_w)
 plt.title('BPCA (VI)')
 
+
+
 # %%
 bpca = GibbsBayesianPCA(data, q=data.shape[1]-1, tau_init=var_noise**(-1))
+bpca.fit(iterations=1000)
 
 
 
 # %%
-bpca.fit(iterations=10000)
+%%timeit -r 3 -n 10
+bpca.fit(iterations=10)
+
 
 
 
 # %%
-bpca_alpha_mean = np.mean(bpca.samples['alpha'][-10:] , axis=0)
+bpca_alpha_mean = np.mean(bpca.samples['alpha'] , axis=0)
 bpca_tau_mean = np.mean(bpca.samples['tau'])
 
 print("Variance of noise: ", bpca_tau_mean**(-1))
@@ -228,12 +233,6 @@ plt.plot(np.log10(sorted(bpca_alpha_mean**(-1), reverse=True)))
 plt.xlabel('Principal component')
 plt.ylabel('Log10 variance')
 plt.title('Estimated noise variance: {:.2e}. Truth {:.2e}'.format(bpca_tau_mean**(-1), var_noise) )
-
-
-bpca.alpha.shape
-# %%
-sorted(bpca_alpha_mean**(-1))
-# %%
 
 
 
