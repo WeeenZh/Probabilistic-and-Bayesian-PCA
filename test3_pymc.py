@@ -17,7 +17,11 @@ class BayesianPCA:
         self.b_tau = b_tau
         self.beta = beta
 
-    def fit(self, iterations=1000, method='nuts'):
+    def fit(
+        self, iterations=1000, method='nuts',
+        tune=0,
+        chains=1,
+        ):
         with pm.Model() as model:
             # Priors
             mu = pm.Normal('mu', mu=0, sigma=np.sqrt(1/self.beta), shape=self.d)
@@ -36,15 +40,15 @@ class BayesianPCA:
 
             # Sampling method
             if method == 'nuts':
-                trace = pm.sample(iterations, return_inferencedata=True, progressbar=True)
+                trace = pm.sample(iterations, return_inferencedata=True, progressbar=True, tune=tune, chains=chains)
             elif method == 'metropolis':
-                trace = pm.sample(iterations, step=pm.Metropolis(), return_inferencedata=True, progressbar=True)
+                trace = pm.sample(iterations, step=pm.Metropolis(), return_inferencedata=True, progressbar=True, tune=tune, chains=chains)
             elif method == 'slice':
-                trace = pm.sample(iterations, step=pm.Slice(), return_inferencedata=True, progressbar=True)
+                trace = pm.sample(iterations, step=pm.Slice(), return_inferencedata=True, progressbar=True, tune=tune, chains=chains)
             elif method == 'hmc':
-                trace = pm.sample(iterations, step=pm.HamiltonianMC(), return_inferencedata=True, progressbar=True)
+                trace = pm.sample(iterations, step=pm.HamiltonianMC(), return_inferencedata=True, progressbar=True, tune=tune, chains=chains)
             elif method == 'smc':
-                trace = pm.sample_smc(iterations, progressbar=True)
+                trace = pm.sample_smc(iterations, progressbar=True, return_inferencedata=True, tune=tune, chains=chains)
 
         self.trace = trace
 
@@ -81,7 +85,7 @@ data = simulate_data(
 # %%
 bpca = BayesianPCA(data, q=data.shape[1] - 1)
 bpca.fit(
-    iterations=1000,
+    iterations=10,
     # method='nuts',
     method = 'metropolis'
     )
