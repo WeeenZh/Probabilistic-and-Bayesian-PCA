@@ -135,6 +135,98 @@ sim.bPCA_ard <- function(data,
 }
 
 
+sim.bPCA_ard_collapsed <- function(data, 
+                         Q, 
+                         mu.prior, 
+                         mu.prior.cov, 
+                         a_alpha, 
+                         b_alpha, 
+                         a_tau, 
+                         b_tau, 
+                         n.chains = 3, 
+                         n.iter = 5000, 
+                         n.burnin = 4500) {
+  # requirements
+  require(R2jags)
+  require(MASS)
+  require(Matrix)
+  require(coda)
+  
+  # dataset dimensions
+  N <- nrow(data)
+  V <- ncol(data)
+  
+  # defaults for priors
+  if (missing(mu.prior)) mu.prior <- rep(0, V)
+  if (missing(mu.prior.cov)) mu.prior.cov <- as.matrix(Diagonal(V, 1000))
+  if (missing(a_alpha)) a_alpha <- 1e-3
+  if (missing(b_alpha)) b_alpha <- 1e-3
+  if (missing(a_tau)) a_tau <- 1e-3
+  if (missing(b_tau)) b_tau <- 1e-3
+  
+  # makes precisions from covariances
+  mu.prior.prec <- solve(mu.prior.cov)
+  
+  # puts data into list
+  listdata <- list(Y = as.matrix(data), 
+                   N = N,
+                   V = V, 
+                   Q = Q,
+                   mu.prior = mu.prior, 
+                   mu.prior.prec = mu.prior.prec,
+                   a_alpha = a_alpha,
+                   b_alpha = b_alpha,
+                   a_tau = a_tau,
+                   b_tau = b_tau)
+  
+  # defines the model in JAGS language
+  cat("
+  model {
+    # Priors for the mean vector
+    mu[1:V] ~ dmnorm(mu.prior[], mu.prior.prec[,])
+    
+    # Priors for the weight matrix W
+    for (i in 1:V) {
+      for (j in 1:Q) {
+        W[i, j] ~ dnorm(0, alpha[j])
+      }
+    }
+
+    # Priors for precision parameters alpha
+    for (j in 1:Q) {
+      alpha[j] ~ dgamma(a_alpha, b_alpha)
+    }
+
+    # Prior for noise precision tau
+    tau ~ dgamma(a_tau, b_tau)
+
+    # Define identity matrix
+    for (i in 1:V) {
+      for (j in 1:V) {
+        I[i, j] <- equals(i, j)
+      }
+    }
+
+    # Marginalized likelihood
+    for (i in 1:N) {
+      Y[i, 1:V] ~ dmnorm(mu[], inverse(tau) * I[,] + W[,] %*% t(W[,]))
+    }
+  }
+  ", file = "PCA_hierarchical.bugs")
+  
+  # jags model to estimate covariance matrix distribution
+  pcabay <- jags(data = listdata,
+                 model.file = "PCA_hierarchical.bugs",
+                #  parameters.to.save = c("mu", "W", "alpha", "tau"),
+                 parameters.to.save = c("alpha", "tau"),
+                 n.chains = n.chains,
+                 n.iter = n.iter,
+                 n.burnin = n.burnin, 
+                 DIC = FALSE)
+  
+  return(pcabay)
+}
+
 
 
 simulate2 <- function(psi = 1, N = 100, P = 10) {
@@ -186,12 +278,13 @@ start_time <- Sys.time()
 #                 #    n.iter = 1200,
 #                    n.burnin = 100)
 # Run the model with hierarchical prior
-bpca.fit <- sim.bPCA_ard(data = data, Q = P-1, n.chains = 1, n.iter = 1200, n.burnin = 100)
-# plot(-sort(log10(colMeans(bpca_fit$BUGSoutput$sims.matrix[, -ncol(bpca_fit$BUGSoutput$sims.matrix)]))),
-#     type = "b", pch = 19, col = "blue",
-#     xlab = "Index", ylab = "Log10(Column Means)",
-#     main = "Inverse Sorted Log10 of Column Means"
-# )
+# bpca.fit <- sim.bPCA_ard(data = data, Q = P-1, n.chains = 1, n.iter = 1200, n.burnin = 100)
+bpca.fit <- sim.bPCA_ard_collapsed(data = data, Q = P-1, n.chains = 1, n.iter = 1200, n.burnin = 100)
+plot(-sort(log10(colMeans(bpca.fit$BUGSoutput$sims.matrix[, -ncol(bpca.fit$BUGSoutput$sims.matrix)]))),
+    type = "b", pch = 19, col = "blue",
+    xlab = "Index", ylab = "Log10(Column Means)",
+    main = "Inverse Sorted Log10 of Column Means"
+)
 
 # End timing
 end_time <- Sys.time()
