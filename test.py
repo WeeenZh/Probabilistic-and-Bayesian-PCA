@@ -114,7 +114,10 @@ class GibbsBayesianPCA:
             b_alpha_tilde_i = b_alpha_tilde[i]
             self.alpha[i] = gamma.rvs(a_alpha_tilde, scale=1/b_alpha_tilde_i)
 
-    def update_tau(self):
+    def update_tau(
+        self,
+        fix_tau_at=None,
+        ):
         a_tau_tilde = self.a_tau + 0.5 * self.N * self.d
         # print(self.t[0].shape, self.mu.shape, self.W.shape, self.x[0].shape, self.tau)
         # n = 0
@@ -124,17 +127,21 @@ class GibbsBayesianPCA:
         #     np.linalg.norm(self.t[n])**2 + self.mu.T @ self.mu + np.trace(self.W.T @ self.W @ (self.x[n][:,None] @ self.x[n][:,None].T)) + 2 * self.mu @ self.W @ self.x[n] - 2 * self.t[[n]] @ self.W @ self.x[[n]].T - 2 * self.t[[n]] @ self.mu.T
         #     for n in range(self.N)
         # ])
-        b_tau_tilde = self.b_tau + 0.5 * (
-            (self.t**2).sum() + (self.mu**2).sum()*self.N + np.trace(
-                self.W.T @ self.W @ (self.x.T @ self.x)
-            ) + 2 * (self.mu @ self.W @ self.x.T).sum() + np.sum([
-                - 2 * self.t[[n]] @ self.W @ self.x[[n]].T 
-                for n in range(self.N)
-            ]) - 2 * (self.t @ self.mu.T).sum()
-        )
+        if fix_tau_at is None:
+            
+            b_tau_tilde = self.b_tau + 0.5 * (
+                (self.t**2).sum() + (self.mu**2).sum()*self.N + np.trace(
+                    self.W.T @ self.W @ (self.x.T @ self.x)
+                ) + 2 * (self.mu @ self.W @ self.x.T).sum() + np.sum([
+                    - 2 * self.t[[n]] @ self.W @ self.x[[n]].T 
+                    for n in range(self.N)
+                ]) - 2 * (self.t @ self.mu.T).sum()
+            )
+            self.tau = gamma.rvs(a_tau_tilde, scale=1/b_tau_tilde)
+        else:
+            self.tau = fix_tau_at
+            b_tau_tilde = a_tau_tilde / self.tau
 
-        # FIXME
-        self.tau = gamma.rvs(a_tau_tilde, scale=1/b_tau_tilde)
 
     def fit(
         self, 
@@ -144,6 +151,7 @@ class GibbsBayesianPCA:
         thinning=10,
         threshold_alpha_complete=None,
         true_signal_dim=None,
+        fix_tau_at=None,
         ):
 
         # store the samples
@@ -161,7 +169,7 @@ class GibbsBayesianPCA:
             self.update_mu()
             self.update_W()
             self.update_alpha()
-            self.update_tau()
+            self.update_tau( fix_tau_at=fix_tau_at )
             if (i + 1) % 100 == 0:
                 print('Iteration ', ( i + 1 ))
 
@@ -202,18 +210,21 @@ def simulate_and_fit(v, n_repeat, n_iter_max, threshold_alpha_complete):
     for j in range(n_repeat):
         start_time = time.time()
         d = simulate_data(psi=v**(-1), N=100)
+        # variational inference
         bpca = BPCA(a_alpha=1e-3, b_alpha=1e-3, a_tau=1e-3, b_tau=1e-3, beta=1e-3)
-        # bpca.fit(
-        #     d, iters=n_iter_max,
-        #     threshold_alpha_complete=threshold_alpha_complete,
-        #     true_signal_dim=4,
-        # )
+        bpca.fit(
+            d, iters=n_iter_max,
+            threshold_alpha_complete=threshold_alpha_complete,
+            true_signal_dim=4,
+            fix_tau_at=v**(-1),
+        )
         # gibbs
         bpca = GibbsBayesianPCA(d, q=d.shape[1]-1, tau_init=v**(-1))
         bpca.fit(
             iterations=n_iter_max,
             threshold_alpha_complete=threshold_alpha_complete,
             true_signal_dim=4,
+            fix_tau_at=v**(-1),
             )
         iter_end_list_i[j] = bpca.iter_converge
         time_list_i[j] = time.time() - start_time

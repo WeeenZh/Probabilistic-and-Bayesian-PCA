@@ -22,7 +22,10 @@ class BPCA(object):
         self.loglikelihoods = None
 
 
-    def update(self):
+    def update(
+        self,
+        fix_tau_at = None
+        ):
         """fixed-point update of the Bayesian PCA"""
         # inverse of the sigma^2
         self.tau = self.a_tau_tilde / self.b_tau_tilde
@@ -47,13 +50,16 @@ class BPCA(object):
         self.b_alpha_tilde = self.b_alpha + 0.5 * (np.trace(self.cov_w) +
                         np.diag(np.dot(self.mean_w.T, self.mean_w)))
         # estimation of the b in tau's Gamma distribution
-        self.b_tau_tilde = self.b_tau + 0.5 * np.trace(np.dot(self.Xb.T, self.Xb)) + \
-                        0.5 * self.b*(np.trace(self.cov_mu)+np.dot(self.mean_mu.flatten(), self.mean_mu.flatten())) + \
-                        0.5 * np.trace(np.dot(np.trace(self.cov_w)+np.dot(self.mean_w.T, self.mean_w),
-                                        self.b*self.cov_z+np.dot(self.mean_z, self.mean_z.T))) + \
-                        np.sum(np.dot(np.dot(self.mean_mu.flatten(), self.mean_w), self.mean_z)) + \
-                        -np.trace(np.dot(self.Xb.T, np.dot(self.mean_w, self.mean_z))) + \
-                        -np.sum(np.dot(self.Xb.T, self.mean_mu))
+        if fix_tau_at is None:
+            self.b_tau_tilde = self.b_tau + 0.5 * np.trace(np.dot(self.Xb.T, self.Xb)) + \
+                            0.5 * self.b*(np.trace(self.cov_mu)+np.dot(self.mean_mu.flatten(), self.mean_mu.flatten())) + \
+                            0.5 * np.trace(np.dot(np.trace(self.cov_w)+np.dot(self.mean_w.T, self.mean_w),
+                                            self.b*self.cov_z+np.dot(self.mean_z, self.mean_z.T))) + \
+                            np.sum(np.dot(np.dot(self.mean_mu.flatten(), self.mean_w), self.mean_z)) + \
+                            -np.trace(np.dot(self.Xb.T, np.dot(self.mean_w, self.mean_z))) + \
+                            -np.sum(np.dot(self.Xb.T, self.mean_mu))
+        else:
+            self.b_tau_tilde = self.a_tau_tilde / fix_tau_at
         
 
     def calculate_log_likelihood(self):
@@ -131,7 +137,8 @@ class BPCA(object):
     def fit(
         self, X=None, batch_size=128, iters=500, print_every=100, verbose=False, trace_elbo=False, trace_loglikelihood=False,
         threshold_alpha_complete = None,
-        true_signal_dim = None
+        true_signal_dim = None,
+        fix_tau_at= None,
         ):
         """fit the Bayesian PCA model using fixed-point update"""
          # data, # of samples, dims
@@ -162,7 +169,9 @@ class BPCA(object):
         for i in range(iters):
             idx = order[self.batch_idx(i)]
             self.Xb = self.X[:,idx]
-            self.update()
+            self.update(
+                fix_tau_at=fix_tau_at
+            )
             if (threshold_alpha_complete is not None) and ( true_signal_dim is not None ):
                 alpha_sorted = sorted(self.alpha)
                 if (alpha_sorted[true_signal_dim] / alpha_sorted[true_signal_dim-1]) > threshold_alpha_complete:
