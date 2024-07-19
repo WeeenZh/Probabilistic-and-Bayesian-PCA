@@ -128,7 +128,11 @@ class BPCA(object):
         return np.arange(idx1, idx2)
 
 
-    def fit(self, X=None, batch_size=128, iters=500, print_every=100, verbose=False, trace_elbo=False, trace_loglikelihood=False):
+    def fit(
+        self, X=None, batch_size=128, iters=500, print_every=100, verbose=False, trace_elbo=False, trace_loglikelihood=False,
+        threshold_alpha_complete = None,
+        true_signal_dim = None
+        ):
         """fit the Bayesian PCA model using fixed-point update"""
          # data, # of samples, dims
         self.X = X.T # don't need to transpose X when passing it
@@ -154,10 +158,16 @@ class BPCA(object):
         order = np.arange(self.N)
         elbos = np.zeros(iters)
         loglikelihoods = np.zeros(iters)
+        self.iter_converge = iters
         for i in range(iters):
             idx = order[self.batch_idx(i)]
             self.Xb = self.X[:,idx]
             self.update()
+            if (threshold_alpha_complete is not None) and ( true_signal_dim is not None ):
+                alpha_sorted = sorted(self.alpha)
+                if (alpha_sorted[true_signal_dim] / alpha_sorted[true_signal_dim-1]) > threshold_alpha_complete:
+                    self.iter_converge = i
+                    break
             if trace_elbo:
                 elbos[i] = self.calculate_ELBO()
             if trace_loglikelihood:

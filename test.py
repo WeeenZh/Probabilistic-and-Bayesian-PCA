@@ -37,12 +37,12 @@ def simulate_data(psi=1, N=100, P=10):
     psi_inv = 1 / psi
     cov = np.diag([5, 4, 3, 2] + [psi_inv] * (P - 4))
 
-    # Generate a random orthogonal matrix U
-    random_matrix = np.random.randn(P, P)
-    U, _, _ = np.linalg.svd(random_matrix)
+    # # Generate a random orthogonal matrix U
+    # random_matrix = np.random.randn(P, P)
+    # U, _, _ = np.linalg.svd(random_matrix)
     
     # Transform the covariance matrix
-    cov = U @ cov @ U.T
+    # cov = U @ cov @ U.T
 
     return np.random.multivariate_normal(np.zeros(P), cov, N)
 
@@ -142,6 +142,8 @@ class GibbsBayesianPCA:
         iterations=500,
         burn_in=200,
         thinning=10,
+        threshold_alpha_complete=None,
+        true_signal_dim=None,
         ):
 
         # store the samples
@@ -154,6 +156,7 @@ class GibbsBayesianPCA:
         }
 
         for i in range(iterations):
+            self.iter_converge = iterations
             self.update_x()
             self.update_mu()
             self.update_W()
@@ -169,10 +172,128 @@ class GibbsBayesianPCA:
                 self.samples['alpha'].append(self.alpha)
                 self.samples['tau'].append(self.tau)
 
+                if (threshold_alpha_complete is not None) and ( true_signal_dim is not None ):
+                    # mean of self.samples['alpha']
+                    alpha_sorted = sorted(np.mean(self.samples['alpha'] , axis=0))
+                    if (alpha_sorted[true_signal_dim] / alpha_sorted[true_signal_dim-1]) > threshold_alpha_complete:
+                        self.iter_converge = i
+                        break
+
 
 # %%
+var_noise_list = np.logspace(-5, 1, 30)
+threshold_alpha_complete = 1e2
+iter_end_list = np.zeros(len(var_noise_list))
+# variational inference
+# n_iter_max = 200000
+# gibbs
+n_iter_max = 20000
+n_repeat = 1
+# %%
+import numpy as np
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import matplotlib.pyplot as plt
+import time
+
+# Function to perform the simulation and fitting
+def simulate_and_fit(v, n_repeat, n_iter_max, threshold_alpha_complete):
+    iter_end_list_i = np.zeros(n_repeat)
+    time_list_i = np.zeros(n_repeat)
+    for j in range(n_repeat):
+        start_time = time.time()
+        d = simulate_data(psi=v**(-1), N=100)
+        bpca = BPCA(a_alpha=1e-3, b_alpha=1e-3, a_tau=1e-3, b_tau=1e-3, beta=1e-3)
+        # bpca.fit(
+        #     d, iters=n_iter_max,
+        #     threshold_alpha_complete=threshold_alpha_complete,
+        #     true_signal_dim=4,
+        # )
+        # gibbs
+        bpca = GibbsBayesianPCA(d, q=d.shape[1]-1, tau_init=v**(-1))
+        bpca.fit(
+            iterations=n_iter_max,
+            threshold_alpha_complete=threshold_alpha_complete,
+            true_signal_dim=4,
+            )
+        iter_end_list_i[j] = bpca.iter_converge
+        time_list_i[j] = time.time() - start_time
+    return np.mean(iter_end_list_i), np.mean(time_list_i)
+
+
+# Specify the number of worker processes (e.g., 4)
+num_workers = 30
+
+r_list = []
+# Use ProcessPoolExecutor to parallelize the loop
+with ProcessPoolExecutor(max_workers=num_workers) as executor:
+    futures = {executor.submit(simulate_and_fit, v, n_repeat, n_iter_max, threshold_alpha_complete): v for v in var_noise_list}
+    for future in as_completed(futures):
+        v = futures[future]
+        mean_iter, mean_time = future.result()
+        r_list.append((v, mean_iter, mean_time))
+        print('Completed Variance: ', v)
+
+# sort r_list by variance
+r_list = sorted(r_list, key=lambda x: x[0])
+v_list, iter_end_list, time_list = zip(*r_list)
+# Convert lists to numpy arrays for plotting
+iter_end_list = np.array(iter_end_list)
+time_list = np.array(time_list)
+
+# Create subplots
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+# Plot the number of iterations to converge
+ax1.plot(np.log10(v_list), iter_end_list, label='Iterations to complete', marker='2')
+ax1.axhline(y=n_iter_max, color='r', linestyle='--', label='Maximum iterations', marker='2')
+ax1.set_xlabel('Log10 noise variance')
+ax1.set_ylabel('Iterations to complete')
+ax1.set_title('Iterations to complete vs. noise variance')
+ax1.legend()
+
+# Plot the time to converge
+ax2.plot(np.log10(v_list), time_list, label='Time to complete', marker='2')
+ax2.set_xlabel('Log10 noise variance')
+ax2.set_ylabel('Time to complete (seconds)')
+ax2.set_title('Time to complete vs. noise variance')
+ax2.legend()
+
+# Show the plots
+plt.tight_layout()
+plt.show()
+
+# Show results excluding those reaching the maximum number of iterations
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+# Plot the number of iterations to converge excluding max iterations
+ax1.plot(np.log10(v_list)[iter_end_list < n_iter_max], iter_end_list[iter_end_list < n_iter_max], marker='2')
+ax1.set_xlabel('Log10 noise variance')
+ax1.set_ylabel('Iterations to complete')
+ax1.set_title('Iterations to complete vs. noise variance (excluding maximum iterations)')
+
+# Plot the time to converge excluding max iterations
+ax2.plot(np.log10(v_list)[iter_end_list < n_iter_max], time_list[iter_end_list < n_iter_max], marker='2')
+ax2.set_xlabel('Log10 noise variance')
+ax2.set_ylabel('Time to complete (seconds)')
+ax2.set_title('Time to complete vs. noise variance (excluding maximum iterations)')
+
+# Show the plots
+plt.tight_layout()
+plt.show()
+
+
+# %%
+# %%
+# %%
+# %%
+# %%
+
+
+
+
+
 # Simulate data with noise
-var_noise = 1e-1
+var_noise = 10
 data = simulate_data(
     psi=var_noise**(-1), 
     N=100
@@ -181,9 +302,19 @@ data = simulate_data(
 
 
 # %%
+# when there is a gap of threshold_alpha_complete between the eigenvalues of the covariance matrix, it is regarded as converged
+threshold_alpha_complete = 1e2
+# threshold_alpha_complete = None
+
+# %%
 # Initialize and fit BPCA model with variational inference
 bpca_model = BPCA(a_alpha=1e-3, b_alpha=1e-3, a_tau=1e-3, b_tau=1e-3, beta=1e-3)
-bpca_model.fit(data, iters=10000)
+bpca_model.fit(
+    data, iters=100000,
+    threshold_alpha_complete=threshold_alpha_complete,
+    true_signal_dim=4,
+    )
+print("Converged in ", bpca_model.iter_converge, " iterations")
 
 var_noise_est = bpca_model.tau**(-1)
 print("Variational of noise: ", var_noise_est)
@@ -210,8 +341,12 @@ plt.title('BPCA (VI)')
 
 # %%
 bpca = GibbsBayesianPCA(data, q=data.shape[1]-1, tau_init=var_noise**(-1))
-bpca.fit(iterations=1000)
-
+bpca.fit(
+    iterations=1000,
+    threshold_alpha_complete=threshold_alpha_complete,
+    true_signal_dim=4,
+    )
+print("Converged in ", bpca.iter_converge, " iterations")
 
 
 # %%
