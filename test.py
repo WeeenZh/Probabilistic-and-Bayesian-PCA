@@ -192,16 +192,17 @@ class GibbsBayesianPCA:
 var_noise_list = np.logspace(-5, 1, 30)
 threshold_alpha_complete = 1e2
 iter_end_list = np.zeros(len(var_noise_list))
-# variational inference
-# n_iter_max = 200000
-# gibbs
-n_iter_max = 20000
 n_repeat = 1
+
 # %%
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import matplotlib.pyplot as plt
 import time
+# variational inference
+# n_iter_max = 200000
+# gibbs
+n_iter_max = 20000
 
 # Function to perform the simulation and fitting
 def simulate_and_fit(v, n_repeat, n_iter_max, threshold_alpha_complete):
@@ -211,20 +212,22 @@ def simulate_and_fit(v, n_repeat, n_iter_max, threshold_alpha_complete):
         start_time = time.time()
         d = simulate_data(psi=v**(-1), N=100)
         # variational inference
-        bpca = BPCA(a_alpha=1e-3, b_alpha=1e-3, a_tau=1e-3, b_tau=1e-3, beta=1e-3)
-        bpca.fit(
-            d, iters=n_iter_max,
-            threshold_alpha_complete=threshold_alpha_complete,
-            true_signal_dim=4,
-            fix_tau_at=v**(-1),
-        )
+        # bpca = BPCA(a_alpha=1e-3, b_alpha=1e-3, a_tau=1e-3, b_tau=1e-3, beta=1e-3)
+        # bpca.fit(
+        #     d, iters=n_iter_max,
+        #     threshold_alpha_complete=threshold_alpha_complete,
+        #     true_signal_dim=4,
+        #     # fix_tau_at=v**(-1),
+        #     fix_tau_at=(1e-2)**(-1),
+        # )
         # gibbs
         bpca = GibbsBayesianPCA(d, q=d.shape[1]-1, tau_init=v**(-1))
         bpca.fit(
             iterations=n_iter_max,
             threshold_alpha_complete=threshold_alpha_complete,
             true_signal_dim=4,
-            fix_tau_at=v**(-1),
+            # fix_tau_at=v**(-1),
+            fix_tau_at=(1e-2)**(-1),
             )
         iter_end_list_i[j] = bpca.iter_converge
         time_list_i[j] = time.time() - start_time
